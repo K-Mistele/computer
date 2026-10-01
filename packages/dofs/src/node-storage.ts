@@ -65,6 +65,9 @@ export class NodeSQLiteStorage implements DurableObjectStorageLike {
   readonly location: string;
   private readonly db: DatabaseSync;
   private readonly cache = new Map<string, StatementSync>();
+  // The synchronous level in force, or undefined when SQLite's default
+  // applies. checkpoint() reads it to decide whether to force a sync.
+  private synchronous: SynchronousLevel | undefined;
   readonly sql: {
     exec: <Row extends object>(query: string, ...bindings: unknown[]) => SQLCursorLike<Row>;
   };
@@ -112,6 +115,7 @@ export class NodeSQLiteStorage implements DurableObjectStorageLike {
     if (synchronous !== undefined) {
       this.db.exec(`PRAGMA synchronous = ${synchronous}`);
     }
+    this.synchronous = synchronous;
     const cacheSizeBytes =
       options.cacheSizeBytes ?? (onDisk ? DEFAULT_CACHE_SIZE_BYTES : undefined);
     if (cacheSizeBytes !== undefined) {
@@ -154,13 +158,24 @@ export class NodeSQLiteStorage implements DurableObjectStorageLike {
   //
   // TRUNCATE rather than PASSIVE: it waits until the log is fully
   // folded and then empties it, which is the state a snapshot wants.
+  //
+  // At synchronous = off a checkpoint writes without syncing, so a
+  // snapshot taken right after could miss pages still in the OS cache.
+  // Sync this one checkpoint fully, then put the level back.
   checkpoint(): CheckpointResult {
     const startedAt = Date.now();
     let walFrames = 0;
     if (this.location !== IN_MEMORY_LOCATION) {
-      const rows = this.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").all() as unknown as Array<
-        Record<string, number>
-      >;
+      const relaxed = this.synchronous === "off";
+      if (relaxed) this.db.exec("PRAGMA synchronous = full");
+      let rows: Array<Record<string, number>>;
+      try {
+        rows = this.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").all() as unknown as Array<
+          Record<string, number>
+        >;
+      } finally {
+        if (relaxed) this.db.exec("PRAGMA synchronous = off");
+      }
       const row = rows[0];
       if (row !== undefined) {
         // The pragma answers with three unnamed columns: a busy flag,

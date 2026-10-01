@@ -137,6 +137,20 @@ describe("NodeSQLiteStorage on a file", () => {
     expect(level).toBe(1);
   });
 
+  it("keeps synchronous = off after a checkpoint", async () => {
+    const path = join(dir, "state.db");
+    const storage = new NodeSQLiteStorage({ location: path, synchronous: "off" });
+    const db = new Database(storage);
+    initializeSchema(db, () => 1000);
+    await new WorkspaceFilesystem(db, { now: () => 1000 }).writeFile("/a.txt", "x");
+
+    storage.checkpoint();
+    const level = db.scalar<number>("PRAGMA synchronous");
+    storage.close();
+
+    expect(level).toBe(0);
+  });
+
   it("keeps temporary tables in memory", () => {
     const path = join(dir, "state.db");
     const { storage, db } = openStore(path);

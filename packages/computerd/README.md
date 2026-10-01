@@ -69,6 +69,8 @@ A file store opens with write-ahead logging, `synchronous = normal`, a 64 MiB pa
 
 `synchronous = normal` flushes to disk when the log is folded back rather than on every commit. That is safe here: the durable object holds the real copy, so a host crash that loses the last few writes costs a resend, not data.
 
+`COMPUTERD_DB_SYNCHRONOUS=off` drops those flushes too. Saving a small file then costs about a third as much, which shows on installs that write tens of thousands of files. A machine crash can then corrupt the store, so use it where the disk does not outlive the machine. A checkpoint still flushes fully, so a snapshot taken after one is complete.
+
 ### Checkpointing
 
 - `POST /__computerd/checkpoint` folds the write-ahead log back into the database file and returns `{ walFrames, sizeBytes, durationMs }`. Call it before taking a disk snapshot, so the snapshot holds one file rather than a file plus a log.
@@ -152,6 +154,7 @@ EXEC_SHELL=/usr/bin/bash          # interpreter exec runs commands under (defaul
 RPC_CLIENT_SECRET=<secret>        # require Authorization: Bearer <secret> on every route but /health
 COMPUTER_VAR_NODE_ENV=production  # forwarded into exec as NODE_ENV
 COMPUTERD_DB=/var/lib/computerd/state.db  # on-disk store; "memory" or unset keeps it in memory
+COMPUTERD_DB_SYNCHRONOUS=off      # SQLite synchronous level for an on-disk store: off, normal (default), full
 ```
 
 `EXEC_SHELL` must be an absolute path. It exists because `/bin/sh` is `dash` on a Debian-family image, where bash-only syntax is a parse error that aborts the command rather than a missing feature: `${PIPESTATUS[@]}`, arrays, `[[ ... ]]`, and process substitution all fail that way. `PIPESTATUS` is the usual way to recover the real exit status of a pipeline whose output is filtered — a command redacting a credential through `sed`, for instance — so a caller that needs it can select an interpreter that has it without repointing `/bin/sh` for every other script in the image.

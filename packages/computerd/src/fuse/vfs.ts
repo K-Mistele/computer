@@ -4,7 +4,7 @@ import {
   invalidateReadOnlyMountCache,
   SQLiteWorkspaceProvider,
 } from "@cloudflare/dofs";
-import { NodeSQLiteStorage } from "@cloudflare/dofs/node";
+import { NodeSQLiteStorage, type SynchronousLevel } from "@cloudflare/dofs/node";
 import { create, type VirtualFileSystem, VirtualProvider } from "@platformatic/vfs";
 
 import type { ResolvedStore } from "./store.js";
@@ -77,6 +77,9 @@ export interface NodeVFSHandle {
 
 export interface CreateNodeVFSOptions {
   store?: ResolvedStore;
+  // SQLite's synchronous level for a file store. Unset keeps the
+  // storage default. Ignored for the in-memory store.
+  synchronous?: SynchronousLevel;
 }
 
 export async function createNodeVirtualFileSystem(
@@ -86,6 +89,9 @@ export async function createNodeVirtualFileSystem(
   const store: ResolvedStore = options.store ?? { kind: "memory" };
   const storage = new NodeSQLiteStorage({
     location: store.kind === "file" ? store.path : ":memory:",
+    ...(store.kind === "file" && options.synchronous !== undefined
+      ? { synchronous: options.synchronous }
+      : {}),
   });
   const db = new Database(storage);
   try {

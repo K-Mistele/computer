@@ -20,6 +20,7 @@ import {
   mountFuse,
   parseFuseMountMode,
   parseStoreMode,
+  parseStoreSynchronous,
   type ResolvedStore,
   resolveFuseBackend,
   resolveStore,
@@ -633,9 +634,12 @@ async function main(): Promise<void> {
   console.log(`[info] FUSE_MOUNT=${fuseMountMode} resolved to backend=${backend.kind}`);
 
   const store = resolveStore(parseStoreMode(process.env.COMPUTERD_DB), mountPoint);
+  const synchronous = parseStoreSynchronous(process.env.COMPUTERD_DB_SYNCHRONOUS);
   console.log(
     `[info] COMPUTERD_DB resolved to store=${store.kind}${
-      store.kind === "file" ? ` path=${store.path} fresh=${store.fresh}` : ""
+      store.kind === "file"
+        ? ` path=${store.path} fresh=${store.fresh} synchronous=${synchronous ?? "normal"}`
+        : ""
     }`,
   );
 
@@ -645,7 +649,7 @@ async function main(): Promise<void> {
     checkpoint: checkpointStore,
     storeStats,
     close: closeStore,
-  } = await createNodeVirtualFileSystem({ store });
+  } = await createNodeVirtualFileSystem({ store, synchronous });
   const info: ComputerdInfo = { backend, mountPoint, port, store };
 
   let fuse: FuseMount | undefined;

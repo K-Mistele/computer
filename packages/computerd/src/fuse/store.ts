@@ -7,6 +7,8 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, normalize, resolve as resolvePath, sep } from "node:path";
 
+import type { SynchronousLevel } from "@cloudflare/dofs/node";
+
 export type StoreMode = { kind: "memory" } | { kind: "file"; path: string };
 
 export type ResolvedStore = { kind: "memory" } | { kind: "file"; path: string; fresh: boolean };
@@ -48,4 +50,23 @@ function assertOutsideMountPoint(path: string, mountPoint: string): void {
       `COMPUTERD_DB must not sit inside the mount point (${mount}), got ${JSON.stringify(path)}`,
     );
   }
+}
+
+const SYNCHRONOUS_LEVELS: readonly SynchronousLevel[] = ["off", "normal", "full"];
+
+// Reads COMPUTERD_DB_SYNCHRONOUS, SQLite's synchronous level for a file
+// store. Unset keeps the default, normal. "off" skips the disk syncs
+// SQLite makes each time it folds its log back into the database, which
+// is most of the cost of saving a small file. Only a crash of the whole
+// machine can then corrupt the store, which costs nothing on a host
+// whose disk does not outlive the machine.
+export function parseStoreSynchronous(value: string | undefined): SynchronousLevel | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "") return undefined;
+  if ((SYNCHRONOUS_LEVELS as readonly string[]).includes(trimmed)) {
+    return trimmed as SynchronousLevel;
+  }
+  throw new Error(
+    `COMPUTERD_DB_SYNCHRONOUS must be one of ${SYNCHRONOUS_LEVELS.join(", ")}, got ${JSON.stringify(value)}`,
+  );
 }

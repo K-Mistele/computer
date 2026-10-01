@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { parseStoreMode, resolveStore } from "./store.js";
+import { parseStoreMode, parseStoreSynchronous, resolveStore } from "./store.js";
 
 // A temp directory that removes itself when the calling test ends.
 function createTempDir(): string {
@@ -107,5 +107,22 @@ describe("resolveStore", () => {
     expect(() =>
       resolveStore({ kind: "file", path: "/workspace/state.db" }, "/workspace/"),
     ).toThrow(/mount point/i);
+  });
+});
+
+describe("parseStoreSynchronous", () => {
+  test("leaves the level to the storage default when unset or empty", () => {
+    expect(parseStoreSynchronous(undefined)).toBeUndefined();
+    expect(parseStoreSynchronous("")).toBeUndefined();
+  });
+
+  test("accepts off, normal and full", () => {
+    expect(parseStoreSynchronous("off")).toBe("off");
+    expect(parseStoreSynchronous("normal")).toBe("normal");
+    expect(parseStoreSynchronous(" full ")).toBe("full");
+  });
+
+  test("rejects anything else and names the variable", () => {
+    expect(() => parseStoreSynchronous("extra")).toThrow(/COMPUTERD_DB_SYNCHRONOUS/);
   });
 });
