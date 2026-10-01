@@ -138,9 +138,11 @@ export async function* coalesceChanges(
   // racing rev. See docs/02_sync_protocol.md.
   for (const { path } of ordered) {
     const entry = materialiseChange(db, path);
-    if (entry !== null && inCursorWindow(entry, cursor, through)) {
-      yield entry;
-    }
+    if (entry === null || !inCursorWindow(entry, cursor, through)) continue;
+    // A tombstone candidate materialises as a live entry when the path
+    // was written again after the delete, so check skipWrite again here.
+    if (entry.kind !== "delete" && skipWrite?.(path)) continue;
+    yield entry;
   }
 }
 

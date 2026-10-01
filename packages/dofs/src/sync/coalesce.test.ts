@@ -286,6 +286,22 @@ describe("coalesceChanges (ignore)", () => {
     });
   });
 
+  it("skipWrite still drops a skipped path that was deleted and written again", async () => {
+    await withDB(async (db) => {
+      mkdir(db, "/dist", {}, () => 0);
+      await writeFile(db, "/dist/tool", "v1", {}, () => 1);
+      const baseline = currentRev(db);
+      // A delete followed by a fresh write leaves both a tombstone and a
+      // live file at the same path, as a tool that replaces a file does.
+      rm(db, "/dist/tool", {});
+      await writeFile(db, "/dist/tool", "v2", {}, () => 2);
+
+      const skipWrite = (path: string) => path === "/dist" || path.startsWith("/dist/");
+      const entries = await drain(coalesceChanges(db, baseline, { skipWrite }));
+      expect(entries.filter((e) => e.kind !== "delete")).toEqual([]);
+    });
+  });
+
   it("an empty ignore list is the default behaviour", async () => {
     await withDB(async (db) => {
       mkdir(db, "/node_modules", {}, () => 0);
