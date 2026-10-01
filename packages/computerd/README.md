@@ -155,7 +155,12 @@ RPC_CLIENT_SECRET=<secret>        # require Authorization: Bearer <secret> on ev
 COMPUTER_VAR_NODE_ENV=production  # forwarded into exec as NODE_ENV
 COMPUTERD_DB=/var/lib/computerd/state.db  # on-disk store; "memory" or unset keeps it in memory
 COMPUTERD_DB_SYNCHRONOUS=off      # SQLite synchronous level for an on-disk store: off, normal (default), full
+COMPUTERD_FUSE_NEGATIVE_TIMEOUT=1 # seconds the kernel keeps a "not found" answer (default 0)
 ```
+
+The kernel caches lookups and attributes for up to the longest `COMPUTERD_FUSE_*_TIMEOUT` (one second by default). A push from the host writes the store directly, so after applying one `computerd` waits until every answer the mount gave before it has expired. The wait is zero unless the mount answered a lookup within that window.
+
+`COMPUTERD_FUSE_NEGATIVE_TIMEOUT` matters for module resolution. Node and test runners look for many files that don't exist (`.ts`, `.js`, `index.ts`, each `node_modules` up the tree). At zero every miss goes to `computerd`; at one second most are answered by the kernel. A `bun run test` in a TypeScript monorepo dropped from 1.19 million requests to 417 thousand.
 
 `EXEC_SHELL` must be an absolute path. It exists because `/bin/sh` is `dash` on a Debian-family image, where bash-only syntax is a parse error that aborts the command rather than a missing feature: `${PIPESTATUS[@]}`, arrays, `[[ ... ]]`, and process substitution all fail that way. `PIPESTATUS` is the usual way to recover the real exit status of a pipeline whose output is filtered — a command redacting a credential through `sed`, for instance — so a caller that needs it can select an interpreter that has it without repointing `/bin/sh` for every other script in the image.
 

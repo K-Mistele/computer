@@ -108,6 +108,38 @@ export function buildFuseOptionString(env: FuseOptionEnv): string {
   return opts.join(",");
 }
 
+// libfuse's own values for options buildFuseOptionString leaves out.
+// ac_attr_timeout falls back to attr_timeout.
+const LIBFUSE_ATTR_TIMEOUT_SECONDS = 1;
+const LIBFUSE_ENTRY_TIMEOUT_SECONDS = 1;
+const LIBFUSE_NEGATIVE_TIMEOUT_SECONDS = 0;
+
+/**
+ * The longest time, in milliseconds, the kernel may keep a lookup or
+ * attribute answer under the options buildFuseOptionString emits.
+ * Timeouts passed through COMPUTERD_FUSE_EXTRA_OPTS are not counted.
+ */
+export function kernelCacheMillis(env: FuseOptionEnv): number {
+  const attr =
+    timeoutSeconds(env.COMPUTERD_FUSE_ATTR_TIMEOUT, DEFAULT_ATTR_TIMEOUT) ??
+    LIBFUSE_ATTR_TIMEOUT_SECONDS;
+  const entry =
+    timeoutSeconds(env.COMPUTERD_FUSE_ENTRY_TIMEOUT, DEFAULT_ENTRY_TIMEOUT) ??
+    LIBFUSE_ENTRY_TIMEOUT_SECONDS;
+  const negative =
+    timeoutSeconds(env.COMPUTERD_FUSE_NEGATIVE_TIMEOUT, DEFAULT_NEGATIVE_TIMEOUT) ??
+    LIBFUSE_NEGATIVE_TIMEOUT_SECONDS;
+  const acAttr =
+    timeoutSeconds(env.COMPUTERD_FUSE_AC_ATTR_TIMEOUT, DEFAULT_AC_ATTR_TIMEOUT) ?? attr;
+  return Math.max(attr, entry, negative, acAttr) * 1000;
+}
+
+// Seconds set for one timeout option, or undefined when the option is
+// left out. Same rules as pushTimeout.
+function timeoutSeconds(raw: string | undefined, fallback: string): number | undefined {
+  return parseNonNegativeNumber(raw === undefined ? fallback : raw === "" ? undefined : raw);
+}
+
 function parsePositiveInt(value: string | undefined): number | undefined {
   if (value === undefined || value === "") return undefined;
   const n = Number(value);

@@ -656,7 +656,8 @@ async function main(): Promise<void> {
   // When running on the userspace shim, capture the typed handle
   // so we can wire `flush()` and `reconcileNow()` into the SyncRPC
   // afterApply / beforeFetch hooks below. A real FUSE mount serves
-  // reads straight from the VFS, so it doesn't need either settle.
+  // reads straight from the VFS; it only waits out the kernel's
+  // cached answers after a push (settleKernel below).
   let shim: ShimMount | undefined;
   if (backend.kind !== "none") {
     // The VFS stores everything under `mountPoint` so capnweb pulls,
@@ -728,11 +729,14 @@ async function main(): Promise<void> {
   // its storage. Deletes still go out.
   const gitignore = process.env.SYNC_GITIGNORE === "1" ? new GitignoreFilter(db) : undefined;
   console.log(`[info] SYNC_GITIGNORE ${gitignore === undefined ? "off" : "on"}`);
+  // A real FUSE mount reads the store directly, but the kernel may
+  // still hold lookups and attributes it cached before a push.
+  const settleKernel = shim === undefined ? fuse?.settle : undefined;
   const rpc = createWorkspaceServer(db, rpcRunner, {
-    // Push handler awaits the shim flush before returning, so any
-    // exec()/read against the host fs after a push sees the new
-    // files. Real FUSE doesn't need this — the kernel-FUSE driver
-    // serves reads from the VFS directly.
+    // Push handler awaits the settle before returning, so any
+    // exec()/read against the mount after a push sees the new files.
+    //   - real FUSE, afterApply: wait out the kernel's cached answers
+    //     from before the push.
     // Symmetric shim settles:
     //   - afterApply (push side): wait for the VFS→disk flush so
     //     a subsequent `shell.exec` sees the just-pushed files.
@@ -741,6 +745,7 @@ async function main(): Promise<void> {
     //     observes files the exec'd process just wrote, without
     //     waiting on the next periodic poll tick.
     ...(shim ? { afterApply: () => shim.flush() } : {}),
+    ...(settleKernel !== undefined ? { afterApply: settleKernel } : {}),
     ...(shim !== undefined || gitignore !== undefined
       ? {
           beforeFetch: async () => {

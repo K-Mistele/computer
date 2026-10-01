@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { buildFuseOptionString, type FuseOptionEnv } from "./options.js";
+import { buildFuseOptionString, type FuseOptionEnv, kernelCacheMillis } from "./options.js";
 
 const empty: FuseOptionEnv = {};
 
@@ -178,5 +178,36 @@ describe("buildFuseOptionString", () => {
       COMPUTERD_FUSE_AUTO_CACHE: "1",
     });
     expect(a).toBe(b);
+  });
+});
+
+describe("kernelCacheMillis", () => {
+  test("is one second with the default options", () => {
+    expect(kernelCacheMillis(empty)).toBe(1000);
+  });
+
+  test("follows the longest timeout that is set", () => {
+    expect(kernelCacheMillis({ COMPUTERD_FUSE_NEGATIVE_TIMEOUT: "5" })).toBe(5000);
+    expect(kernelCacheMillis({ COMPUTERD_FUSE_AC_ATTR_TIMEOUT: "2.5" })).toBe(2500);
+  });
+
+  test("counts libfuse's own one-second values for options turned off", () => {
+    expect(
+      kernelCacheMillis({
+        COMPUTERD_FUSE_ATTR_TIMEOUT: "",
+        COMPUTERD_FUSE_ENTRY_TIMEOUT: "",
+        COMPUTERD_FUSE_AC_ATTR_TIMEOUT: "",
+      }),
+    ).toBe(1000);
+  });
+
+  test("is zero when every timeout is zero", () => {
+    expect(
+      kernelCacheMillis({
+        COMPUTERD_FUSE_ATTR_TIMEOUT: "0",
+        COMPUTERD_FUSE_ENTRY_TIMEOUT: "0",
+        COMPUTERD_FUSE_AC_ATTR_TIMEOUT: "0",
+      }),
+    ).toBe(0);
   });
 });

@@ -1,7 +1,8 @@
 import { writeFileSync as nodeWriteFileSync } from "node:fs";
 import { posix } from "node:path";
 import type { FUSEBackend } from "./backend.js";
-import { buildFuseOptionString } from "./options.js";
+import { createKernelCacheClock } from "./kernel-cache.js";
+import { buildFuseOptionString, kernelCacheMillis } from "./options.js";
 import { createFuseTracer, type FuseTracer, wrapFuseOpsWithTracer } from "./tracer.js";
 import type { NodeVirtualFileSystem } from "./vfs.js";
 
@@ -135,6 +136,12 @@ export interface FuseMount {
   // filesystem. Only present when the mount was created via mountFuse;
   // the shim does not expose this.
   getBufferStats?: () => FuseBufferStats;
+  // Resolves once the kernel has dropped every lookup and attribute
+  // answer the mount gave so far. Call it after writing the store
+  // directly, so the next command can't see a cached answer from
+  // before the write. Only present when the mount was created via
+  // mountFuse.
+  settle?: () => Promise<void>;
 }
 
 interface FuseNativeInstance {
@@ -974,10 +981,9 @@ export async function mountFuse(options: {
   const tracer: FuseTracer | undefined = traceMode === "summary" ? createFuseTracer() : undefined;
   const baseOps = makeFUSEOps(options.vfs, options.mountPoint);
   const { getBufferStats: _getBufferStats, ...fuseOps } = baseOps;
-  const ops =
-    tracer === undefined
-      ? fuseOps
-      : wrapFuseOpsWithTracer(fuseOps as unknown as Record<string, unknown>, tracer);
+  const kernelCache = createKernelCacheClock(kernelCacheMillis(process.env));
+  const clockedOps = kernelCache.wrap(fuseOps as unknown as Record<string, unknown>);
+  const ops = tracer === undefined ? clockedOps : wrapFuseOpsWithTracer(clockedOps, tracer);
   const fuse = new Fuse(options.mountPoint, ops, {
     autoUnmount: true,
     debug: false,
@@ -1046,6 +1052,7 @@ export async function mountFuse(options: {
       });
     },
     getBufferStats: _getBufferStats,
+    settle: kernelCache.settle,
   };
 }
 
