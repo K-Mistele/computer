@@ -268,6 +268,24 @@ describe("coalesceChanges (ignore)", () => {
     });
   });
 
+  it("skipWrite drops created and changed paths but keeps their deletes", async () => {
+    await withDB(async (db) => {
+      mkdir(db, "/dist", {}, () => 0);
+      await writeFile(db, "/dist/old.js", "old", {}, () => 1);
+      const baseline = currentRev(db);
+      await writeFile(db, "/dist/new.js", "new", {}, () => 2);
+      await writeFile(db, "/src.ts", "x", {}, () => 3);
+      rm(db, "/dist/old.js", {});
+
+      const skipWrite = (path: string) => path === "/dist" || path.startsWith("/dist/");
+      const entries = await drain(coalesceChanges(db, baseline, { skipWrite }));
+      expect(entries.map((e) => [e.kind, e.path])).toEqual([
+        ["file", "/src.ts"],
+        ["delete", "/dist/old.js"],
+      ]);
+    });
+  });
+
   it("an empty ignore list is the default behaviour", async () => {
     await withDB(async (db) => {
       mkdir(db, "/node_modules", {}, () => 0);

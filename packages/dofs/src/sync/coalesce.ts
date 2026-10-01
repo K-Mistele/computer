@@ -22,6 +22,11 @@ export interface CoalesceOptions {
   // Path-segment patterns to drop before yielding. The wire never
   // carries entries under an ignored segment.
   ignore?: string[];
+  // Paths whose creates and changes stay off the wire. Deletes still
+  // go out, so a path removed here never lingers on the other side.
+  // computerd uses this to keep gitignored files, such as
+  // node_modules, in the container.
+  skipWrite?: (path: string) => boolean;
   // Internal snapshot bound. When set, entries are limited to the
   // cursor window `after < entry <= through`. The bound is applied to
   // each path's *live* rev at materialise time, not to a frozen
@@ -38,6 +43,7 @@ export async function* coalesceChanges(
   options: CoalesceOptions = {},
 ): AsyncIterable<ChangeEntry> {
   const ignore = options.ignore ?? [];
+  const skipWrite = options.skipWrite;
   const cursor = typeof after === "number" ? { rev: after, path: null } : after;
   const through = options.through;
 
@@ -78,6 +84,7 @@ export async function* coalesceChanges(
     for (const path of pathsByInode.get(inode) ?? []) {
       if (!inCursorWindow({ rev, path }, cursor, through)) continue;
       if (isIgnored(path, ignore)) continue;
+      if (skipWrite?.(path)) continue;
       const prior = candidates.get(path);
       if (prior === undefined || rev > prior.rev) {
         candidates.set(path, { path, rev });

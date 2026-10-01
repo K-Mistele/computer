@@ -420,3 +420,49 @@ describe("pack mode push", () => {
     }
   });
 });
+
+describe("pull with skipWrite", () => {
+  const skipLow = (path: string) => /^\/f00[0-3]\.txt$/.test(path);
+
+  for (const [mode, options] of [
+    ["entry", {}],
+    ["pack", PACK_OPTIONS],
+  ] as const) {
+    it(`leaves skipped files on the remote in ${mode} mode`, async () => {
+      const local = makePeer();
+      const storage = new SQLiteTestStorage();
+      const remoteDb = new Database(storage);
+      initializeSchema(remoteDb, () => 1000);
+      const remoteRpc = createSyncServer(remoteDb, { skipWrite: skipLow });
+      try {
+        seed(remoteDb, 8);
+        await drain(pullBlocks(local.db, remoteRpc, options));
+        expect(names(local.db)).toEqual(["f004.txt", "f005.txt", "f006.txt", "f007.txt"]);
+      } finally {
+        local.close();
+        storage.close();
+      }
+    });
+  }
+
+  it("still sends the delete of a skipped path", async () => {
+    const local = makePeer();
+    const storage = new SQLiteTestStorage();
+    const remoteDb = new Database(storage);
+    initializeSchema(remoteDb, () => 1000);
+    try {
+      seed(remoteDb, 2);
+      // The local side already holds f000.txt, as it would for a file it
+      // wrote itself before the remote changed the rules.
+      await drain(pullBlocks(local.db, createSyncServer(remoteDb)));
+      expect(names(local.db)).toEqual(["f000.txt", "f001.txt"]);
+
+      new SQLiteWorkspaceProvider(remoteDb).unlinkSync("/f000.txt");
+      await drain(pullBlocks(local.db, createSyncServer(remoteDb, { skipWrite: skipLow })));
+      expect(names(local.db)).toEqual(["f001.txt"]);
+    } finally {
+      local.close();
+      storage.close();
+    }
+  });
+});

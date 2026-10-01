@@ -25,6 +25,7 @@ import {
   resolveStore,
 } from "../fuse/index.js";
 import { mountShim, type ShimMount } from "../shim/index.js";
+import { GitignoreFilter } from "../sync/gitignore.js";
 import { installLogging } from "./logger.js";
 
 // The compiled-in default port. esbuild's `define` substitutes the
@@ -718,6 +719,11 @@ async function main(): Promise<void> {
     kill: runner.kill.bind(runner),
     dispose: runner.dispose.bind(runner),
   };
+  // SYNC_GITIGNORE=1 keeps gitignored paths in the container: the
+  // durable object never pulls them, so installs and builds stay off
+  // its storage. Deletes still go out.
+  const gitignore = process.env.SYNC_GITIGNORE === "1" ? new GitignoreFilter(db) : undefined;
+  console.log(`[info] SYNC_GITIGNORE ${gitignore === undefined ? "off" : "on"}`);
   const rpc = createWorkspaceServer(db, rpcRunner, {
     // Push handler awaits the shim flush before returning, so any
     // exec()/read against the host fs after a push sees the new
@@ -730,12 +736,16 @@ async function main(): Promise<void> {
     //     so a `Workspace.pull()` issued right after `shell.exec`
     //     observes files the exec'd process just wrote, without
     //     waiting on the next periodic poll tick.
-    ...(shim
+    ...(shim ? { afterApply: () => shim.flush() } : {}),
+    ...(shim !== undefined || gitignore !== undefined
       ? {
-          afterApply: () => shim.flush(),
-          beforeFetch: () => shim.reconcileNow(),
+          beforeFetch: async () => {
+            await shim?.reconcileNow();
+            gitignore?.refresh();
+          },
         }
       : {}),
+    ...(gitignore === undefined ? {} : { skipWrite: (path: string) => gitignore.isIgnored(path) }),
   });
   const http = createHTTPServer(
     info,

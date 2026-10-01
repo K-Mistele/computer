@@ -53,6 +53,7 @@ export interface PlanBlockRequest {
   readonly through: ChangeCursor;
   readonly profile: BlockProfile;
   readonly ignore?: string[];
+  readonly skipWrite?: (path: string) => boolean;
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -83,7 +84,11 @@ export async function planBlock(db: Database, request: PlanBlockRequest): Promis
   let objectBytes = 0;
   let drained = true;
 
-  const options = request.ignore === undefined ? { through } : { through, ignore: request.ignore };
+  const options = {
+    through,
+    ...(request.ignore === undefined ? {} : { ignore: request.ignore }),
+    ...(request.skipWrite === undefined ? {} : { skipWrite: request.skipWrite }),
+  };
 
   for await (const entry of coalesceChanges(db, after, options)) {
     if (entries.length >= profile.maxEntries) {

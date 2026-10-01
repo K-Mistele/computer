@@ -60,6 +60,13 @@ export interface RunnerLike {
 export interface ServerOptions {
   ignore?: string[];
   /**
+   * Optional filter for the pull side. A path it returns true for is
+   * left out of `fetchChanges` and `fetchChangePack` when it is
+   * created or changed; its deletes still go out. Used by computerd to
+   * keep gitignored files, such as node_modules, in the container.
+   */
+  skipWrite?: (path: string) => boolean;
+  /**
    * Optional hook fired inside the SyncRPC `push` handler, right
    * after a successful peer batch has been committed. Resolved
    * before `push()` returns to the caller. Used by computerd to settle
@@ -92,7 +99,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
   constructor(
     private readonly db: Database,
     private readonly options: Required<Pick<ServerOptions, "ignore">> &
-      Pick<ServerOptions, "afterApply" | "beforeFetch">,
+      Pick<ServerOptions, "afterApply" | "beforeFetch" | "skipWrite">,
   ) {
     super();
     trackStub(this);
@@ -219,7 +226,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
       currentCursor,
       appliedPushCursor: readFetchCursor(this.db),
       stream: iterableToReadableStream(
-        coalesceChanges(this.db, after, { ignore, through: currentCursor }),
+        coalesceChanges(this.db, after, {
+          ignore,
+          through: currentCursor,
+          ...(this.options.skipWrite === undefined ? {} : { skipWrite: this.options.skipWrite }),
+        }),
       ),
     };
   }
@@ -261,6 +272,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
       through: target,
       profile: { maxEntries: input.maxEntries, maxBytes: input.maxBytes },
       ...(ignore === undefined ? {} : { ignore }),
+      ...(this.options.skipWrite === undefined ? {} : { skipWrite: this.options.skipWrite }),
     });
 
     return {
@@ -456,6 +468,7 @@ export function createSyncServer(db: Database, options: ServerOptions = {}): Syn
     ignore: options.ignore ?? [],
     afterApply: options.afterApply,
     beforeFetch: options.beforeFetch,
+    skipWrite: options.skipWrite,
   });
 }
 
