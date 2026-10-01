@@ -144,9 +144,14 @@ type CteResolution =
 // missing level-D row, matching the loop's null. Every node the walk
 // touches is returned so the caller can detect any symlink and fall
 // back.
-function resolveViaCte(db: Database, parts: string[]): CteResolution {
-  const rows = db.all<CteRow>(
-    `WITH RECURSIVE
+//
+// The CROSS JOINs pin the join order: segment first, then dirent. With
+// plain JOINs SQLite searches vfs_dirents on parent_inode alone and
+// matches the name afterwards, so each step reads every entry in the
+// directory. A lookup through node_modules/.bun read ~1,000 rows per
+// level, and the cost grew with every package installed.
+/** @internal Exported so tests can check its query plan. */
+export const RESOLVE_PATH_SQL = `WITH RECURSIVE
        segs(level, name) AS (
          SELECT key, value FROM json_each(?)
        ),
@@ -157,17 +162,17 @@ function resolveViaCte(db: Database, parts: string[]): CteResolution {
          UNION ALL
          SELECT w.level + 1, n.inode, n.type, n.mode, n.mtime, n.size, n.link_target
            FROM walk w
-           JOIN segs s ON s.level = w.level
-           JOIN vfs_dirents d ON d.parent_inode = w.inode AND d.name = s.name
+           CROSS JOIN segs s ON s.level = w.level
+           CROSS JOIN vfs_dirents d ON d.parent_inode = w.inode AND d.name = s.name
            JOIN vfs_nodes n ON n.inode = d.child_inode
           WHERE w.type = 'dir'
        )
      SELECT level, inode, type, mode, mtime, size, link_target
        FROM walk
-      ORDER BY level`,
-    JSON.stringify(parts),
-    ROOT_INODE,
-  );
+      ORDER BY level`;
+
+function resolveViaCte(db: Database, parts: string[]): CteResolution {
+  const rows = db.all<CteRow>(RESOLVE_PATH_SQL, JSON.stringify(parts), ROOT_INODE);
 
   const depth = parts.length;
   let target: CteRow | undefined;

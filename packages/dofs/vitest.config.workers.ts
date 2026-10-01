@@ -32,6 +32,11 @@ export default defineConfig({
     // represent. All other tests run under both backends; helpers
     // delegate to withDB, which this config aliases to a DO-backed
     // implementation.
-    exclude: ["src/schema/index.test.ts", "src/testing.test.ts", "src/node-storage.test.ts"],
+    exclude: [
+      "src/schema/index.test.ts",
+      "src/testing.test.ts",
+      "src/node-storage.test.ts",
+      "src/fs/resolve.plan.test.ts",
+    ],
   },
 });
